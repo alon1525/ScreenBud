@@ -1,30 +1,168 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  ActivityIndicator,
   TouchableOpacity,
-  Alert,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card } from '../components/common/Card';
-import { SimpleProgressRing } from '../components/gamification/SimpleProgressRing';
-import { StreakIndicator } from '../components/gamification/StreakIndicator';
-import { LevelBadge } from '../components/gamification/LevelBadge';
 import { Colors } from '../constants/colors';
-import { calculateDailyPoints, xpForNextLevel } from '../constants/points';
+import { useAuth } from '../contexts/AuthContext';
+import { socialMediaTrackingService, DailyStats } from '../services/socialMediaTracking';
+import { CircularProgress } from '../components/common/CircularProgress';
+import { GoalEditorModal } from '../components/common/GoalEditorModal';
+import { userService } from '../services/firestore';
+
+interface AppData {
+  name: string;
+  key: keyof DailyStats;
+  color: string;
+  icon: string;
+  goalKey: string;
+}
+
+const APPS: AppData[] = [
+  { name: 'YouTube', key: 'youtubeMinutes', color: '#FF0000', icon: '▶', goalKey: 'youtube' },
+  { name: 'Instagram', key: 'instagramMinutes', color: '#E4405F', icon: '📷', goalKey: 'instagram' },
+  { name: 'TikTok', key: 'tiktokMinutes', color: '#8B5CF6', icon: '🎵', goalKey: 'tiktok' },
+  { name: 'Snapchat', key: 'snapchatMinutes', color: '#FFFC00', icon: '👻', goalKey: 'snapchat' },
+  { name: 'Facebook', key: 'facebookMinutes', color: '#1877F2', icon: '👥', goalKey: 'facebook' },
+];
+
+const DEFAULT_GOAL_MINUTES = 60; // 1 hour
+
+interface AppGoals {
+  youtube: number;
+  instagram: number;
+  tiktok: number;
+  snapchat: number;
+  facebook: number;
+}
 
 export const Dashboard: React.FC = () => {
-  // Mock data for now - will be replaced with real data later
-  const goalMinutes = 120; // 2 hours
-  const currentMinutes = 45; // 45 minutes used
-  const progress = (currentMinutes / goalMinutes) * 100;
-  const streak = 7;
-  const level = 5;
-  const totalXP = 4500;
-  const xpForNext = xpForNextLevel(level, totalXP % 1000);
-  const points = calculateDailyPoints(goalMinutes, currentMinutes, streak);
+  const { user } = useAuth();
+  const [stats, setStats] = useState<DailyStats | null>(null);
+  const [goals, setGoals] = useState<AppGoals>({
+    youtube: DEFAULT_GOAL_MINUTES,
+    instagram: DEFAULT_GOAL_MINUTES,
+    tiktok: DEFAULT_GOAL_MINUTES,
+    snapchat: DEFAULT_GOAL_MINUTES,
+    facebook: DEFAULT_GOAL_MINUTES,
+  });
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedApp, setSelectedApp] = useState<AppData | null>(null);
+  const [goalModalVisible, setGoalModalVisible] = useState(false);
+
+  useEffect(() => {
+    loadData();
+  }, [user?.uid]);
+
+  const loadData = async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      await Promise.all([loadTodayStats(), loadGoals()]);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadTodayStats = async () => {
+    if (!user) return;
+    try {
+      const todayStats = await socialMediaTrackingService.getTodayStats(user.uid);
+      setStats(todayStats);
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  };
+
+  const loadGoals = async () => {
+    if (!user) return;
+    try {
+      const userDoc = await userService.getUser(user.uid);
+      if (userDoc && (userDoc as any).appGoals) {
+        setGoals({
+          youtube: (userDoc as any).appGoals.youtube || DEFAULT_GOAL_MINUTES,
+          instagram: (userDoc as any).appGoals.instagram || DEFAULT_GOAL_MINUTES,
+          tiktok: (userDoc as any).appGoals.tiktok || DEFAULT_GOAL_MINUTES,
+          snapchat: (userDoc as any).appGoals.snapchat || DEFAULT_GOAL_MINUTES,
+          facebook: (userDoc as any).appGoals.facebook || DEFAULT_GOAL_MINUTES,
+        });
+      }
+    } catch (error) {
+      console.error('Error loading goals:', error);
+    }
+  };
+
+  const saveGoal = async (appKey: string, goal: number) => {
+    if (!user) return;
+    try {
+      const updatedGoals = { ...goals, [appKey]: goal };
+      setGoals(updatedGoals);
+      await userService.updateUser(user.uid, {
+        appGoals: updatedGoals,
+      } as any);
+    } catch (error) {
+      console.error('Error saving goal:', error);
+    }
+  };
+
+  const handleAppPress = (app: AppData) => {
+    setSelectedApp(app);
+    setGoalModalVisible(true);
+  };
+
+  const formatMinutes = (minutes: number): string => {
+    if (minutes < 60) {
+      return `${Math.round(minutes)}m`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  };
+
+  const getProgress = (used: number, goal: number): number => {
+    return (used / goal) * 100; // Can be over 100
+  };
+
+  const getTotalUsed = (): number => {
+    return (
+      (typeof stats?.tiktokMinutes === 'number' ? stats.tiktokMinutes : 0) +
+      (typeof stats?.instagramMinutes === 'number' ? stats.instagramMinutes : 0) +
+      (typeof stats?.youtubeMinutes === 'number' ? stats.youtubeMinutes : 0) +
+      (typeof stats?.facebookMinutes === 'number' ? stats.facebookMinutes : 0) +
+      (typeof stats?.snapchatMinutes === 'number' ? stats.snapchatMinutes : 0)
+    );
+  };
+
+  const getTotalGoal = (): number => {
+    return Object.values(goals).reduce((sum, goal) => sum + goal, 0);
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const totalUsed = getTotalUsed();
+  const totalGoal = getTotalGoal();
+  const totalPercentage = getProgress(totalUsed, totalGoal);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -32,77 +170,84 @@ export const Dashboard: React.FC = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => {
+            setRefreshing(true);
+            loadData();
+          }} />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Hello! 👋</Text>
-            <Text style={styles.username}>Player</Text>
-          </View>
-          <StreakIndicator streak={streak} size="medium" />
+          <Text style={styles.greeting}>Today's Usage</Text>
+          <Text style={styles.subtitle}>Track your social media time</Text>
         </View>
 
-        {/* Level Badge */}
-        <LevelBadge
-          level={level}
-          xp={totalXP % 1000}
-          xpForNextLevel={xpForNext}
-        />
-
-        {/* Today's Progress Card */}
-        <Card>
-          <Text style={styles.cardTitle}>Today's Progress</Text>
-          <View style={styles.progressContainer}>
-            <SimpleProgressRing
-              progress={progress}
-              current={currentMinutes}
-              goal={goalMinutes}
-              points={points}
-            />
-          </View>
-          <View style={styles.statusContainer}>
-            <Text style={[styles.statusText, { color: Colors.success }]}>
-              You're crushing it! 🎉
-            </Text>
-          </View>
-        </Card>
-
-        {/* Quick Stats */}
-        <View style={styles.statsRow}>
-          <Card style={styles.statCard}>
-            <Text style={styles.statLabel}>Weekly Total</Text>
-            <Text style={styles.statValue}>8h 45m</Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={styles.statLabel}>League Rank</Text>
-            <Text style={styles.statValue}>#12 / 45</Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={styles.statLabel}>Total Points</Text>
-            <Text style={styles.statValue}>{points}</Text>
-          </Card>
+        {/* Total Progress Card */}
+        <View style={styles.totalCard}>
+          <CircularProgress
+            progress={totalPercentage}
+            size={180}
+            strokeWidth={16}
+            color={Colors.primary}
+            used={totalUsed}
+            goal={totalGoal}
+            appName="Total"
+            appIcon="📊"
+          />
         </View>
 
-        {/* Action Buttons */}
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonMargin]}
-            onPress={() => Alert.alert('View Details', 'This will show detailed stats!')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.actionButtonText}>View Details</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonSecondary]}
-            onPress={() => Alert.alert('Leaderboard', 'This will show the weekly leaderboard!')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.actionButtonTextSecondary}>
-              Weekly Leaderboard
-            </Text>
-          </TouchableOpacity>
+        {/* App Cards Grid */}
+        <View style={styles.appsGrid}>
+          {APPS.map((app) => {
+            const usedMinutes = stats?.[app.key];
+            const used = typeof usedMinutes === 'number' ? usedMinutes : 0;
+            const goal = goals[app.goalKey as keyof AppGoals];
+            const percentage = getProgress(used, goal);
+
+            return (
+              <TouchableOpacity
+                key={app.key}
+                style={[styles.appCard, { borderColor: app.color + '30' }]}
+                onPress={() => handleAppPress(app)}
+                activeOpacity={0.7}
+              >
+                <CircularProgress
+                  progress={percentage}
+                  size={140}
+                  strokeWidth={12}
+                  color={app.color}
+                  used={used}
+                  goal={goal}
+                  appName={app.name}
+                  appIcon={app.icon}
+                />
+                <View style={styles.editHint}>
+                  <Text style={[styles.editHintText, { color: app.color }]}>
+                    Tap to edit goal
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </ScrollView>
+
+      {/* Goal Editor Modal */}
+      {selectedApp && (
+        <GoalEditorModal
+          visible={goalModalVisible}
+          appName={selectedApp.name}
+          appIcon={selectedApp.icon}
+          appColor={selectedApp.color}
+          currentGoal={goals[selectedApp.goalKey as keyof AppGoals]}
+          onClose={() => {
+            setGoalModalVisible(false);
+            setSelectedApp(null);
+          }}
+          onSave={(goal) => saveGoal(selectedApp.goalKey, goal)}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -117,89 +262,62 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 32, // Extra padding at bottom for safe area
+    paddingBottom: 32,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   greeting: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-  },
-  username: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: '700',
     color: Colors.text,
-    marginTop: 4,
-  },
-  progressContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text,
-    marginBottom: 16,
-  },
-  statusContainer: {
-    marginTop: 16,
-    alignItems: 'center',
-  },
-  statusText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  statCard: {
-    flex: 1,
-    marginHorizontal: 4,
-    padding: 12,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
     marginBottom: 4,
   },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.text,
+  subtitle: {
+    fontSize: 16,
+    color: Colors.textSecondary,
   },
-  actionsContainer: {
-    marginTop: 16,
-  },
-  actionButtonMargin: {
-    marginBottom: 12,
-  },
-  actionButton: {
-    backgroundColor: Colors.primary,
-    padding: 16,
-    borderRadius: 12,
+  totalCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 24,
     alignItems: 'center',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  actionButtonSecondary: {
-    backgroundColor: 'transparent',
+  appsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  appCard: {
+    width: '48%',
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    alignItems: 'center',
     borderWidth: 2,
-    borderColor: Colors.primary,
-    padding: 14, // Slightly less padding to account for border
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  actionButtonText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '600',
+  editHint: {
+    marginTop: 8,
   },
-  actionButtonTextSecondary: {
-    color: Colors.primary,
-    fontSize: 16,
+  editHintText: {
+    fontSize: 11,
     fontWeight: '600',
   },
 });
-

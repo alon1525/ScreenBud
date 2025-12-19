@@ -3,19 +3,28 @@
  * @format
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
 import { Dashboard } from './src/screens/Dashboard';
 import { UsernameSetup } from './src/screens/UsernameSetup';
+import { UsagePermissionScreen } from './src/screens/UsagePermissionScreen';
 import { Colors } from './src/constants/colors';
+import { useSocialMediaTracking } from './src/hooks/useSocialMediaTracking';
+import { useUsagePermission } from './src/hooks/useUsagePermission';
 
 function AppContent() {
   const { user, loading, hasUsername, usernameLoading } = useAuth();
+  const { hasPermission, checking: permissionChecking } = useUsagePermission();
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  
+  // Only start tracking if user has username and permission
+  // Hook handles conditional logic internally
+  useSocialMediaTracking();
 
-  // Show loading screen while checking auth
-  if (loading || usernameLoading) {
+  // Show loading screen while checking auth or permission
+  if (loading || usernameLoading || (user && hasUsername && permissionChecking && !permissionGranted)) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
@@ -28,7 +37,18 @@ function AppContent() {
     return <UsernameSetup />;
   }
 
-  // Otherwise show dashboard
+  // If user has username but no permission, show permission screen
+  if (user && hasUsername && !hasPermission && !permissionGranted) {
+    return (
+      <UsagePermissionScreen
+        onPermissionGranted={() => {
+          setPermissionGranted(true);
+        }}
+      />
+    );
+  }
+
+  // Otherwise show dashboard (user has username and permission)
   return <Dashboard />;
 }
 

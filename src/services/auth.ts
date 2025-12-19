@@ -216,7 +216,9 @@ export async function hasUsername(uid: string): Promise<boolean> {
   const timeoutMs = 3000; // 3 seconds
   
   try {
-    console.log('Checking username for user:', uid);
+    console.log('=== Checking username for user ===');
+    console.log('Auth UID being queried:', uid);
+    console.log('Querying Firestore: users/' + uid);
     const startTime = Date.now();
     
     const userDoc = await Promise.race([
@@ -229,14 +231,111 @@ export async function hasUsername(uid: string): Promise<boolean> {
     
     // Document doesn't exist = no username
     if (!userDoc.exists) {
-      console.log('User document does not exist - no username');
+      console.log('User document does not exist at users/' + uid);
+      console.log('This might mean the Auth UID changed (app reinstalled/data cleared) or document has wrong ID.');
+      console.log('Attempting to find user by checking existing documents...');
+      
+      // Try to find if there's a document with a username that might belong to this user
+      // This is a fallback for when Auth UID changes but user data exists
+      // Only migrate if there's exactly ONE document with a username (safe assumption for single-user testing)
+      try {
+        const allUsersSnapshot = await firestore()
+          .collection('users')
+          .limit(50) // Check up to 50 users
+          .get();
+        
+        console.log(`Found ${allUsersSnapshot.size} user documents in collection`);
+        
+        // Find documents that have a username
+        const docsWithUsername = allUsersSnapshot.docs.filter(doc => {
+          const data = doc.data();
+          return data?.username && data.username.trim().length > 0;
+        });
+        
+        console.log(`Found ${docsWithUsername.length} documents with usernames`);
+        
+        // If there's exactly one document with a username, migrate it
+        // This is safe for single-user scenarios (like during development/testing)
+        if (docsWithUsername.length === 1) {
+          const foundDoc = docsWithUsername[0];
+          const foundData = foundDoc.data();
+          const foundUsername = foundData.username;
+          
+          console.log('Found single document with username:', foundUsername);
+          console.log('Document ID:', foundDoc.id, 'vs Auth UID:', uid);
+          console.log('Migrating data to correct document ID...');
+          
+          // Migrate the data to the correct document ID
+          await firestore()
+            .collection('users')
+            .doc(uid)
+            .set({
+              ...foundData,
+              id: uid,
+            }, { merge: true });
+          
+          // Delete the old document
+          await firestore().collection('users').doc(foundDoc.id).delete();
+          console.log('Migration complete! Checking username again...');
+          
+          // Re-check with correct document ID
+          const newUserDoc = await firestore().collection('users').doc(uid).get();
+          if (newUserDoc.exists) {
+            const newUserData = newUserDoc.data();
+            const username = newUserData?.username;
+            const hasUsername = !!username && username.trim().length > 0;
+            console.log('After migration, username found:', hasUsername, username);
+            return hasUsername;
+          }
+        } else if (docsWithUsername.length > 1) {
+          console.log('Multiple documents with usernames found - cannot auto-migrate');
+          console.log('Please manually fix document IDs in Firestore Console');
+        }
+      } catch (migrationError) {
+        console.warn('Could not migrate user document:', migrationError);
+      }
+      
       return false;
     }
     
     const userData = userDoc.data();
-    const hasUsernameValue = !!userData?.username && userData.username.trim().length > 0;
-    console.log('Username check result:', hasUsernameValue ? `"${userData.username}"` : 'none');
-    return hasUsernameValue;
+    
+    // Debug: Log everything
+    console.log('=== USER DOCUMENT DEBUG ===');
+    console.log('Document exists:', userDoc.exists);
+    console.log('Document ID:', userDoc.id);
+    console.log('Auth UID:', uid);
+    console.log('IDs match:', userDoc.id === uid);
+    console.log('Raw data():', userData);
+    console.log('Data keys:', userData ? Object.keys(userData) : 'no data');
+    
+    // Check all possible username field variations
+    const username1 = userData?.username;
+    const username2 = userData?.['username'];
+    const username3 = (userData as any)?.username;
+    console.log('username (dot):', username1);
+    console.log('username (bracket):', username2);
+    console.log('username (cast):', username3);
+    
+    // Try to find username in any form
+    const username = username1 || username2 || username3;
+    console.log('Final extracted username:', username);
+    console.log('Username type:', typeof username);
+    console.log('Username value:', JSON.stringify(username));
+    
+    if (username) {
+      const trimmed = username.toString().trim();
+      console.log('Trimmed username:', trimmed);
+      console.log('Length:', trimmed.length);
+      const hasUsernameValue = trimmed.length > 0;
+      console.log('Has username:', hasUsernameValue);
+      console.log('=== END DEBUG ===');
+      return hasUsernameValue;
+    }
+    
+    console.log('No username found in any form');
+    console.log('=== END DEBUG ===');
+    return false;
   } catch (error: any) {
     const errorCode = error?.code || '';
     const errorMessage = error?.message || '';
@@ -345,6 +444,43 @@ export async function setUsername(uid: string, firstName: string, nickname: stri
     const exists = await usernameExists(username, uid);
     if (exists) {
       throw new Error('This username is already taken. Please choose a different one.');
+    }
+    
+    // Check if there's an existing document with this username but different ID
+    // This handles the case where document was created with wrong ID
+    try {
+      const usernameQuery = await firestore()
+        .collection('users')
+        .where('username', '==', username)
+        .limit(1)
+        .get();
+      
+      if (!usernameQuery.empty) {
+        const existingDoc = usernameQuery.docs[0];
+        const existingDocId = existingDoc.id;
+        
+        console.log('Found existing document with username:', existingDocId);
+        
+        // If the existing document ID doesn't match the Auth UID, migrate the data
+        if (existingDocId !== uid) {
+          console.log('Migrating data from document', existingDocId, 'to', uid);
+          const existingData = existingDoc.data();
+          
+          // Create/update document with correct ID (Auth UID)
+          await userService.setUser(uid, {
+            ...existingData,
+            username, // Ensure username is set
+            id: uid, // Ensure ID matches
+          } as Partial<User>);
+          
+          // Delete the old document with wrong ID
+          await firestore().collection('users').doc(existingDocId).delete();
+          console.log('Migration complete - old document deleted');
+          return;
+        }
+      }
+    } catch (migrationError) {
+      console.warn('Error checking for existing username document (continuing anyway):', migrationError);
     }
     
     // Only save username field - document ID will be the Auth UID

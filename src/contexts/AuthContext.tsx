@@ -88,6 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         try {
           const hasUsernameResult = await checkUsername(firebaseUser.uid);
+          console.log('checkUsername returned:', hasUsernameResult);
+          console.log('hasUsernameValue state will be set to:', hasUsernameResult);
           
           // If no username and no document exists, create the user document
           if (!hasUsernameResult) {

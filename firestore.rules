@@ -41,6 +41,19 @@ service cloud.firestore {
     match /friends/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    
+    // Social Media Tracking - users can only access their own stats
+    match /users/{userId}/dailyStats/{date} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /users/{userId}/weeklyStats/{weekId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /users/{userId}/monthlyStats/{monthId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }
 
