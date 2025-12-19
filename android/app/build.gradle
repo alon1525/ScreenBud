@@ -1,6 +1,8 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Add the Google services Gradle plugin
+apply plugin: "com.google.gms.google-services"
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -116,4 +118,13 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    // Import the Firebase BoM
+    implementation platform('com.google.firebase:firebase-bom:34.7.0')
+
+    // Firebase products for ScreenTimeBattle
+    // When using the BoM, don't specify versions in Firebase dependencies
+    implementation 'com.google.firebase:firebase-auth'        // Authentication
+    implementation 'com.google.firebase:firebase-firestore' // Real-time database (leaderboards, friends, user data)
+    implementation 'com.google.firebase:firebase-messaging'  // Push notifications
 }
