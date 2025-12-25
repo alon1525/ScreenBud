@@ -38,9 +38,34 @@ class UsageStatsModule(reactContext: ReactApplicationContext) :
             
             val stats = usageStatsTracker.getTodayUsageStats()
             val result = Arguments.createMap()
+            
+            // Log what we're returning for debugging
+            android.util.Log.d("UsageStatsModule", "=== Returning stats to React Native ===")
+            android.util.Log.d("UsageStatsModule", "Raw stats map from tracker: $stats")
+            android.util.Log.d("UsageStatsModule", "Stats map size: ${stats.size}")
+            
             stats.forEach { (app, minutes) ->
-                result.putDouble("${app}Minutes", minutes.toDouble())
+                val key = "${app}Minutes"
+                val value = minutes.toDouble()
+                android.util.Log.d("UsageStatsModule", "📤 $key = $value minutes (from $app)")
+                result.putDouble(key, value)
             }
+            
+            // Log all keys in result
+            val resultKeys = mutableListOf<String>()
+            val keyIterator = result.keySetIterator()
+            while (keyIterator.hasNextKey()) {
+                resultKeys.add(keyIterator.nextKey())
+            }
+            android.util.Log.d("UsageStatsModule", "Result map keys: $resultKeys")
+            android.util.Log.d("UsageStatsModule", "Total apps in result: ${stats.size}")
+            
+            // Log what React Native will receive
+            android.util.Log.d("UsageStatsModule", "=== FINAL DATA BEING SENT TO REACT NATIVE ===")
+            stats.forEach { (app, minutes) ->
+                android.util.Log.d("UsageStatsModule", "🎯 $app: ${minutes}Minutes = $minutes minutes")
+            }
+            
             promise.resolve(result)
         } catch (e: Exception) {
             promise.reject("ERROR", e.message, e)
@@ -61,6 +86,21 @@ class UsageStatsModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun getCurrentDateString(promise: Promise) {
         promise.resolve(usageStatsTracker.getCurrentDateString())
+    }
+
+    /**
+     * Get device timezone info for debugging
+     */
+    @ReactMethod
+    fun getDeviceTimezone(promise: Promise) {
+        val timezone = java.util.TimeZone.getDefault()
+        val result = Arguments.createMap()
+        result.putString("id", timezone.id)
+        result.putString("displayName", timezone.displayName)
+        result.putInt("rawOffset", timezone.rawOffset / 1000 / 60) // offset in minutes
+        result.putInt("dstSavings", timezone.dstSavings / 1000 / 60) // DST savings in minutes
+        result.putBoolean("useDaylightTime", timezone.useDaylightTime())
+        promise.resolve(result)
     }
     
     /**

@@ -8,13 +8,16 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { NativeModules } from 'react-native';
 import { Colors } from '../constants/colors';
 import { useAuth } from '../contexts/AuthContext';
-import { socialMediaTrackingService, DailyStats } from '../services/socialMediaTracking';
+import { socialMediaTrackingService, DailyStats, getTodayDateString } from '../services/socialMediaTracking';
 import { CircularProgress } from '../components/common/CircularProgress';
 import { GoalEditorModal } from '../components/common/GoalEditorModal';
 import { userService } from '../services/firestore';
+
+const { UsageStatsModule } = NativeModules;
 
 interface AppData {
   name: string;
@@ -44,6 +47,7 @@ interface AppGoals {
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<DailyStats | null>(null);
   const [goals, setGoals] = useState<AppGoals>({
     youtube: DEFAULT_GOAL_MINUTES,
@@ -56,6 +60,9 @@ export const Dashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedApp, setSelectedApp] = useState<AppData | null>(null);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
+  
+  // Tab bar base height is 60px, add safe area bottom inset
+  const bottomPadding = 60 + insets.bottom + 16;
 
   useEffect(() => {
     loadData();
@@ -68,7 +75,7 @@ export const Dashboard: React.FC = () => {
     }
 
     try {
-      await Promise.all([loadTodayStats(), loadGoals()]);
+      await Promise.all([loadAndSaveTodayStats(), loadGoals()]);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -77,13 +84,81 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const loadTodayStats = async () => {
-    if (!user) return;
+  const loadAndSaveTodayStats = async () => {
+    if (!user || !UsageStatsModule) return;
+    
     try {
-      const todayStats = await socialMediaTrackingService.getTodayStats(user.uid);
-      setStats(todayStats);
-    } catch (error) {
-      console.error('Error loading stats:', error);
+      // 0. Check timezone (for debugging)
+      const timezoneInfo = await UsageStatsModule.getDeviceTimezone();
+      console.log('=== Device Timezone Info ===');
+      console.log('Timezone ID:', timezoneInfo.id);
+      console.log('Display Name:', timezoneInfo.displayName);
+      console.log('Raw Offset (minutes):', timezoneInfo.rawOffset);
+      console.log('DST Savings (minutes):', timezoneInfo.dstSavings);
+      console.log('Uses Daylight Time:', timezoneInfo.useDaylightTime);
+      
+      // 1. Check permission
+      const hasPermission = await UsageStatsModule.hasUsageStatsPermission();
+      if (!hasPermission) {
+        console.log('No usage stats permission');
+        setStats(null);
+        return;
+      }
+
+      // 2. Get data from native module (phone)
+      const nativeStats = await UsageStatsModule.getTodayUsageStats();
+      if (!nativeStats) {
+        console.log('No stats from native module');
+        setStats(null);
+        return;
+      }
+
+      console.log('=== Dashboard: Got stats from native module ===');
+      console.log('Raw stats:', nativeStats);
+      console.log('Raw stats keys:', Object.keys(nativeStats));
+      console.log('Raw stats values:', Object.values(nativeStats));
+
+      // 3. Map and convert to DailyStats format
+      // Native module returns keys like "instagramMinutes", "facebookMinutes", etc.
+      // We can directly use these keys if they match DailyStats fields
+      const dailyStats: DailyStats = {
+        tiktokMinutes: 0,
+        instagramMinutes: 0,
+        youtubeMinutes: 0,
+        facebookMinutes: 0,
+        snapchatMinutes: 0,
+        updatedAt: new Date(),
+      };
+
+      // Direct mapping - native module keys should match DailyStats field names
+      for (const [key, minutes] of Object.entries(nativeStats)) {
+        // Check if the key is a valid field in DailyStats
+        if (key in dailyStats && typeof minutes === 'number') {
+          const fieldName = key as keyof DailyStats;
+          // Ensure we're setting a number field, not updatedAt
+          if (fieldName !== 'updatedAt') {
+            (dailyStats[fieldName] as number) = Math.round(minutes);
+            console.log(`Mapped ${key}: ${minutes} -> ${Math.round(minutes)} minutes`);
+          }
+        } else {
+          console.warn(`Unknown or invalid key from native module: ${key} = ${minutes}`);
+        }
+      }
+
+      console.log('Mapped stats:', dailyStats);
+
+      // 4. Save to database
+      const today = getTodayDateString();
+      await socialMediaTrackingService.setDailyStats(user.uid, today, dailyStats);
+      console.log('✅ Saved to database');
+
+      // 5. Display the data we just pulled (not from database)
+      setStats(dailyStats);
+    } catch (error: any) {
+      console.error('Error loading/saving stats:', error);
+      if (error?.code !== 'PERMISSION_DENIED') {
+        setStats(null);
+      }
     }
   };
 
@@ -165,15 +240,15 @@ export const Dashboard: React.FC = () => {
   const totalPercentage = getProgress(totalUsed, totalGoal);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => {
+          <RefreshControl refreshing={refreshing} onRefresh={async () => {
             setRefreshing(true);
-            loadData();
+            await loadData();
           }} />
         }
       >
@@ -262,7 +337,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 32,
   },
   loadingContainer: {
     flex: 1,

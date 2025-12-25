@@ -50,3 +50,4 @@ Click **"Publish"**
 After enabling Firestore, restart your app and the "unavailable" errors should stop!
 
 
+

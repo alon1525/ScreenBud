@@ -82,3 +82,4 @@ const APP_PACKAGES = {
 - Keep all monthly stats
 - Delete daily stats older than 30 days after aggregation
 
+

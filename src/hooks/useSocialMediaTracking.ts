@@ -39,14 +39,8 @@ export function useSocialMediaTracking() {
 
         // Upload to Firestore
         // Native module returns keys like "tiktokMinutes", "instagramMinutes", etc. (with "Minutes" suffix)
-        const appMapping: Record<string, 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'snapchat'> = {
-          tiktokMinutes: 'tiktok',
-          instagramMinutes: 'instagram',
-          youtubeMinutes: 'youtube',
-          facebookMinutes: 'facebook',
-          snapchatMinutes: 'snapchat',
-        };
-
+        // These keys should directly match the DailyStats field names
+        
         // Use setDailyStats to replace today's data instead of incrementing
         // This prevents duplicate data if the app is opened multiple times
         const today = getTodayDateString();
@@ -60,20 +54,27 @@ export function useSocialMediaTracking() {
         };
 
         console.log('Raw stats from native module:', stats);
+        console.log('Raw stats keys:', Object.keys(stats));
+        console.log('Raw stats values:', Object.values(stats));
 
+        // Direct mapping - native module keys should match DailyStats field names
         for (const [key, minutes] of Object.entries(stats)) {
-          const app = appMapping[key as keyof typeof appMapping];
-          if (app) {
-            const fieldName = `${app}Minutes` as keyof typeof dailyStats;
-            if (fieldName in dailyStats) {
+          // Check if the key is a valid field in dailyStats
+          if (key in dailyStats && typeof minutes === 'number') {
+            const fieldName = key as keyof typeof dailyStats;
+            // Ensure we're setting a number field, not updatedAt
+            if (fieldName !== 'updatedAt') {
               dailyStats[fieldName] = Math.round(minutes);
+              console.log(`Mapped ${key}: ${minutes} -> ${Math.round(minutes)} minutes`);
             }
           } else {
-            console.log(`Unknown key from native module: ${key}`);
+            console.warn(`Unknown or invalid key from native module: ${key} = ${minutes} (type: ${typeof minutes})`);
           }
         }
 
         console.log('Daily stats to upload:', dailyStats);
+        console.log('User UID:', user.uid);
+        console.log('Today date:', today);
 
         // Set the complete daily stats (replaces any existing data for today)
         await socialMediaTrackingService.setDailyStats(
@@ -81,6 +82,9 @@ export function useSocialMediaTracking() {
           today,
           dailyStats
         );
+
+        console.log('✅ Stats uploaded successfully to Firestore');
+        console.log('Path: users/' + user.uid + '/dailyStats/' + today);
       } catch (error: any) {
         if (error?.code !== 'PERMISSION_DENIED') {
           console.error('Error uploading stats:', error);

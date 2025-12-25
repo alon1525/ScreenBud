@@ -89,3 +89,4 @@ In Firebase Console → Firestore → Indexes:
 4. Check Firestore for uploaded data
 5. Verify midnight rollover creates new daily document
 
+

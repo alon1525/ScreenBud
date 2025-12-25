@@ -192,15 +192,27 @@ export const socialMediaTrackingService = {
     stats: DailyStats
   ): Promise<void> {
     try {
+      const dataToSave = {
+        tiktokMinutes: stats.tiktokMinutes,
+        instagramMinutes: stats.instagramMinutes,
+        youtubeMinutes: stats.youtubeMinutes,
+        facebookMinutes: stats.facebookMinutes,
+        snapchatMinutes: stats.snapchatMinutes,
+        updatedAt: firestore.FieldValue.serverTimestamp(),
+      };
+      
+      console.log('=== Saving to Firestore ===');
+      console.log('Path: users/' + uid + '/dailyStats/' + date);
+      console.log('Data:', dataToSave);
+      
       await firestore()
         .collection('users')
         .doc(uid)
         .collection('dailyStats')
         .doc(date)
-        .set({
-          ...stats,
-          updatedAt: firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
+        .set(dataToSave, { merge: true });
+        
+      console.log('✅ Saved successfully');
     } catch (error) {
       console.error('Error setting daily stats:', error);
       throw error;

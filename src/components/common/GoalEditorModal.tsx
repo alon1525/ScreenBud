@@ -111,7 +111,7 @@ export const GoalEditorModal: React.FC<GoalEditorModalProps> = ({
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.button, { backgroundColor: appColor }]}
+              style={[styles.button, { backgroundColor: Colors.primary }]}
               onPress={handleSave}
               activeOpacity={0.7}
             >
@@ -237,4 +237,5 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
 });
+
 

@@ -30,6 +30,9 @@ export const Colors = {
   textSecondary: '#636E72',
   textLight: '#FFFFFF',
   
+  // Border colors
+  border: '#DFE6E9',
+  
   // Usage status colors
   usageUnder50: '#00D084', // Green
   usage50to80: '#FFC312', // Yellow

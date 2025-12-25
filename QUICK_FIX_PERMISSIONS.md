@@ -97,3 +97,4 @@ If you see "Test mode" in the Firestore console, you shouldn't get permission er
 - Wait 2-3 minutes and try again
 - Or switch to production mode and follow steps above
 
+

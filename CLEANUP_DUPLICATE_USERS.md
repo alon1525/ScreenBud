@@ -45,3 +45,4 @@ You can delete the extra anonymous users from Firebase Console:
    - Handles race conditions better
    - Prevents multiple sign-in attempts
 
+

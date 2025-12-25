@@ -6,8 +6,9 @@
 import React, { useState } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
-import { Dashboard } from './src/screens/Dashboard';
+import { MainNavigator } from './src/navigation/MainNavigator';
 import { UsernameSetup } from './src/screens/UsernameSetup';
 import { UsagePermissionScreen } from './src/screens/UsagePermissionScreen';
 import { Colors } from './src/constants/colors';
@@ -48,8 +49,20 @@ function AppContent() {
     );
   }
 
-  // Otherwise show dashboard (user has username and permission)
-  return <Dashboard />;
+  // Otherwise show main navigation with bottom tabs (user has username and permission)
+  if (!user) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <NavigationContainer>
+      <MainNavigator />
+    </NavigationContainer>
+  );
 }
 
 export default function App() {

@@ -112,3 +112,4 @@ await socialMediaTrackingService.deleteOldDailyStats(userId, 30);
 - Old data is automatically cleaned up
 - Aggregation runs only when needed (new week/month)
 
+
