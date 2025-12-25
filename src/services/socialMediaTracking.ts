@@ -12,6 +12,11 @@ export interface DailyStats {
   youtubeMinutes: number;
   facebookMinutes: number;
   snapchatMinutes: number;
+  tiktokEntrances?: number;
+  instagramEntrances?: number;
+  youtubeEntrances?: number;
+  facebookEntrances?: number;
+  snapchatEntrances?: number;
   updatedAt: Date;
 }
 
@@ -220,6 +225,253 @@ export const socialMediaTrackingService = {
   },
 
   /**
+   * Get friends list for a user
+   */
+  async getFriends(uid: string): Promise<string[]> {
+    try {
+      const friendsSnapshot = await firestore()
+        .collection('friends')
+        .doc(uid)
+        .collection('friends')
+        .where('blocked', '==', false)
+        .get();
+      
+      return friendsSnapshot.docs.map(doc => doc.id);
+    } catch (error) {
+      console.error('Error getting friends:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Get blocked users list
+   */
+  async getBlockedUsers(uid: string): Promise<string[]> {
+    try {
+      const blockedSnapshot = await firestore()
+        .collection('friends')
+        .doc(uid)
+        .collection('friends')
+        .where('blocked', '==', true)
+        .get();
+      
+      return blockedSnapshot.docs.map(doc => doc.id);
+    } catch (error) {
+      console.error('Error getting blocked users:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Add a friend (bidirectional)
+   */
+  async addFriend(currentUserId: string, friendId: string): Promise<void> {
+    try {
+      if (currentUserId === friendId) {
+        throw new Error('Cannot add yourself as a friend');
+      }
+
+      const batch = firestore().batch();
+      
+      // Add friend relationship for current user
+      const currentUserFriendRef = firestore()
+        .collection('friends')
+        .doc(currentUserId)
+        .collection('friends')
+        .doc(friendId);
+      
+      batch.set(currentUserFriendRef, {
+        addedAt: firestore.FieldValue.serverTimestamp(),
+        blocked: false,
+      });
+
+      // Add friend relationship for the other user
+      const friendUserFriendRef = firestore()
+        .collection('friends')
+        .doc(friendId)
+        .collection('friends')
+        .doc(currentUserId);
+      
+      batch.set(friendUserFriendRef, {
+        addedAt: firestore.FieldValue.serverTimestamp(),
+        blocked: false,
+      });
+
+      await batch.commit();
+    } catch (error) {
+      console.error('Error adding friend:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Delete a friend (bidirectional)
+   */
+  async deleteFriend(currentUserId: string, friendId: string): Promise<void> {
+    try {
+      const batch = firestore().batch();
+      
+      // Remove friend relationship for current user
+      const currentUserFriendRef = firestore()
+        .collection('friends')
+        .doc(currentUserId)
+        .collection('friends')
+        .doc(friendId);
+      
+      batch.delete(currentUserFriendRef);
+
+      // Remove friend relationship for the other user
+      const friendUserFriendRef = firestore()
+        .collection('friends')
+        .doc(friendId)
+        .collection('friends')
+        .doc(currentUserId);
+      
+      batch.delete(friendUserFriendRef);
+
+      await batch.commit();
+    } catch (error) {
+      console.error('Error deleting friend:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Block a user
+   */
+  async blockUser(currentUserId: string, userIdToBlock: string): Promise<void> {
+    try {
+      const batch = firestore().batch();
+      
+      // Block on current user's side
+      const currentUserFriendRef = firestore()
+        .collection('friends')
+        .doc(currentUserId)
+        .collection('friends')
+        .doc(userIdToBlock);
+      
+      batch.set(currentUserFriendRef, {
+        blocked: true,
+        blockedAt: firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      await batch.commit();
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Unblock a user
+   */
+  async unblockUser(currentUserId: string, userIdToUnblock: string): Promise<void> {
+    try {
+      const batch = firestore().batch();
+      
+      // Unblock on current user's side
+      const currentUserFriendRef = firestore()
+        .collection('friends')
+        .doc(currentUserId)
+        .collection('friends')
+        .doc(userIdToUnblock);
+      
+      batch.set(currentUserFriendRef, {
+        blocked: false,
+        unblockedAt: firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      await batch.commit();
+    } catch (error) {
+      console.error('Error unblocking user:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Add friend by link (extracts userId from link)
+   */
+  async addFriendByLink(currentUserId: string, link: string): Promise<void> {
+    try {
+      // Extract userId from link: screentimebattle://add-friend/{userId}
+      const match = link.match(/add-friend\/([^\/\s]+)/);
+      if (!match || !match[1]) {
+        throw new Error('Invalid friend link');
+      }
+      
+      const friendId = match[1];
+      await this.addFriend(currentUserId, friendId);
+    } catch (error) {
+      console.error('Error adding friend by link:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get leaderboard data for friends
+   * Returns array of user stats sorted by minutes (ascending - lower is better)
+   */
+  async getLeaderboard(
+    currentUserId: string,
+    tab: 'overall' | 'youtube' | 'instagram' | 'tiktok' | 'snapchat' | 'facebook',
+    date: string = getTodayDateString()
+  ): Promise<Array<{ uid: string; username: string; nickname?: string; minutes: number }>> {
+    try {
+      // Get friends list
+      const friendIds = await this.getFriends(currentUserId);
+      
+      // Include current user in leaderboard
+      const allUserIds = [currentUserId, ...friendIds];
+      
+      // Get stats for all users
+      const statsPromises = allUserIds.map(async (uid) => {
+        try {
+          const stats = await this.getDailyStats(uid, date);
+          const userDoc = await firestore().collection('users').doc(uid).get();
+          const userData = userDoc.data();
+          
+          let minutes = 0;
+          if (stats) {
+            if (tab === 'overall') {
+              minutes =
+                (stats.tiktokMinutes || 0) +
+                (stats.instagramMinutes || 0) +
+                (stats.youtubeMinutes || 0) +
+                (stats.facebookMinutes || 0) +
+                (stats.snapchatMinutes || 0);
+            } else {
+              const key = `${tab}Minutes` as keyof DailyStats;
+              minutes = (stats[key] as number) || 0;
+            }
+          }
+          
+          return {
+            uid,
+            username: userData?.nickname || userData?.username || 'Unknown',
+            nickname: userData?.nickname,
+            minutes,
+          };
+        } catch (error) {
+          console.error(`Error getting stats for user ${uid}:`, error);
+          return {
+            uid,
+            username: 'Unknown',
+            minutes: 0,
+          };
+        }
+      });
+      
+      const allStats = await Promise.all(statsPromises);
+      
+      // Sort by minutes (ascending - lower is better for screen time)
+      return allStats.sort((a, b) => a.minutes - b.minutes);
+    } catch (error) {
+      console.error('Error getting leaderboard:', error);
+      return [];
+    }
+  },
+
+  /**
    * Get daily stats for a specific date
    */
   async getDailyStats(uid: string, date: string): Promise<DailyStats | null> {
@@ -413,10 +665,11 @@ export const socialMediaTrackingService = {
   },
 
   /**
-   * Get weekly stats
+   * Get weekly stats - aggregates from daily stats if weekly stats don't exist
    */
   async getWeeklyStats(uid: string, weekId: string): Promise<WeeklyStats | null> {
     try {
+      // First try to get from weeklyStats collection
       const doc = await firestore()
         .collection('users')
         .doc(uid)
@@ -437,7 +690,42 @@ export const socialMediaTrackingService = {
           totalMinutes: data?.totalMinutes || 0,
         };
       }
-      return null;
+
+      // If weekly stats don't exist, aggregate from daily stats
+      const { start, end } = getWeekDates(weekId);
+      const startDate = start.toISOString().split('T')[0];
+      const endDate = end.toISOString().split('T')[0];
+
+      const dailyStatsMap = await this.getDailyStatsRange(uid, startDate, endDate);
+
+      // Aggregate from daily stats
+      const aggregated: WeeklyStats = {
+        weekStart: start,
+        weekEnd: end,
+        tiktokMinutes: 0,
+        instagramMinutes: 0,
+        youtubeMinutes: 0,
+        facebookMinutes: 0,
+        snapchatMinutes: 0,
+        totalMinutes: 0,
+      };
+
+      dailyStatsMap.forEach((stats) => {
+        aggregated.tiktokMinutes += stats.tiktokMinutes || 0;
+        aggregated.instagramMinutes += stats.instagramMinutes || 0;
+        aggregated.youtubeMinutes += stats.youtubeMinutes || 0;
+        aggregated.facebookMinutes += stats.facebookMinutes || 0;
+        aggregated.snapchatMinutes += stats.snapchatMinutes || 0;
+      });
+
+      aggregated.totalMinutes =
+        aggregated.tiktokMinutes +
+        aggregated.instagramMinutes +
+        aggregated.youtubeMinutes +
+        aggregated.facebookMinutes +
+        aggregated.snapchatMinutes;
+
+      return aggregated;
     } catch (error) {
       console.error('Error getting weekly stats:', error);
       throw error;

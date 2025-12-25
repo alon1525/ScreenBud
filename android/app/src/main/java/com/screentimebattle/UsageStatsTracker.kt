@@ -47,19 +47,37 @@ class UsageStatsTracker(private val context: Context) {
         context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     
     /**
+     * Usage stats result containing both time and entrance counts
+     */
+    data class UsageStatsResult(
+        val timeMinutes: Map<String, Long>,
+        val entranceCounts: Map<String, Int>
+    )
+    
+    /**
      * Get usage stats for all tracked apps for today
-     * Returns minutes spent per app
+     * Returns minutes spent per app and entrance counts
      * Uses queryEvents for more accurate tracking (API 28+)
      * Falls back to queryAndAggregateUsageStats for older APIs
      */
     fun getTodayUsageStats(): Map<String, Long> {
-        val stats = mutableMapOf<String, Long>()
+        val result = getTodayUsageStatsWithEntrances()
+        return result.timeMinutes
+    }
+    
+    /**
+     * Get usage stats with entrance counts
+     */
+    fun getTodayUsageStatsWithEntrances(): UsageStatsResult {
+        val timeStats = mutableMapOf<String, Long>()
+        val entranceCounts = mutableMapOf<String, Int>()
         
         // Initialize all apps to 0 FIRST
         SocialMediaPackages.ALL_PACKAGES.forEach { packageName ->
             val appName = getAppNameFromPackage(packageName)
             if (appName != null) {
-                stats[appName] = 0L
+                timeStats[appName] = 0L
+                entranceCounts[appName] = 0
             }
         }
         
@@ -150,6 +168,11 @@ class UsageStatsTracker(private val context: Context) {
                         UsageEvents.Event.ACTIVITY_RESUMED -> {
                             // Only track resumes on or after start of day
                             if (event.timeStamp >= startTime) {
+                                // Count this as an entrance (app launch)
+                                val currentCount = entranceCounts[appName] ?: 0
+                                entranceCounts[appName] = currentCount + 1
+                                android.util.Log.d("UsageStatsTracker", "🚪 $appName entrance #${currentCount + 1}")
+                                
                                 // If app already has an active session, close it first (prevent overlapping)
                                 val existingResume = appResumeTimes[packageName]
                                 if (existingResume != null && existingResume > 0) {
@@ -266,8 +289,8 @@ class UsageStatsTracker(private val context: Context) {
                     val appName = getAppNameFromPackage(packageName)
                     if (appName != null) {
                         val minutes = TimeUnit.MILLISECONDS.toMinutes(totalMs)
-                        stats[appName] = minutes
-                        android.util.Log.d("UsageStatsTracker", "📊 $appName: $totalMs ms = $minutes minutes")
+                        timeStats[appName] = minutes
+                        android.util.Log.d("UsageStatsTracker", "📊 $appName: $totalMs ms = $minutes minutes, ${entranceCounts[appName] ?: 0} entrances")
                         if (totalMs > 0) {
                             hasAnyData = true
                         }
@@ -278,17 +301,17 @@ class UsageStatsTracker(private val context: Context) {
                 SocialMediaPackages.ALL_PACKAGES.forEach { packageName ->
                     val appName = getAppNameFromPackage(packageName)
                     if (appName != null && !appTotalTimes.containsKey(packageName)) {
-                        android.util.Log.d("UsageStatsTracker", "📊 $appName: 0 ms = 0 minutes (no events)")
+                        android.util.Log.d("UsageStatsTracker", "📊 $appName: 0 ms = 0 minutes, ${entranceCounts[appName] ?: 0} entrances (no time events)")
                     }
                 }
                 
                 if (hasAnyData) {
                     android.util.Log.d("UsageStatsTracker", "✅ Using event-based tracking")
                     android.util.Log.d("UsageStatsTracker", "=== FINAL RESULTS ===")
-                    stats.forEach { (app, minutes) ->
-                        android.util.Log.d("UsageStatsTracker", "🎯 FINAL: $app = $minutes minutes")
+                    timeStats.forEach { (app, minutes) ->
+                        android.util.Log.d("UsageStatsTracker", "🎯 FINAL: $app = $minutes minutes, ${entranceCounts[app] ?: 0} entrances")
                     }
-                    return stats
+                    return UsageStatsResult(timeStats, entranceCounts)
                 } else {
                     android.util.Log.w("UsageStatsTracker", "⚠️ No event data found for any tracked apps, falling back to queryAndAggregateUsageStats")
                 }
@@ -340,12 +363,12 @@ class UsageStatsTracker(private val context: Context) {
                     
                     if (minutes > maxPossibleMinutes) {
                         android.util.Log.w("UsageStatsTracker", "  ⚠️ $appName shows $minutes min but only $maxPossibleMinutes min have passed today - capping to 0")
-                        stats[appName] = 0L
+                        timeStats[appName] = 0L
                     } else if (minutes > absoluteMaxMinutes) {
                         android.util.Log.w("UsageStatsTracker", "  ⚠️ $appName shows $minutes min (likely includes background time) - capping to $absoluteMaxMinutes min")
-                        stats[appName] = absoluteMaxMinutes
+                        timeStats[appName] = absoluteMaxMinutes
                     } else {
-                        stats[appName] = minutes
+                        timeStats[appName] = minutes
                     }
                 } else {
                     android.util.Log.d("UsageStatsTracker", "$appName ($packageName): No usage data found")
@@ -355,11 +378,12 @@ class UsageStatsTracker(private val context: Context) {
         }
         
         // Log final stats
-        stats.forEach { (app, minutes) ->
-            android.util.Log.d("UsageStatsTracker", "Final: $app = $minutes minutes")
+        android.util.Log.d("UsageStatsTracker", "=== FINAL RESULTS (fallback) ===")
+        timeStats.forEach { (app, minutes) ->
+            android.util.Log.d("UsageStatsTracker", "Final: $app = $minutes minutes, ${entranceCounts[app] ?: 0} entrances")
         }
         
-        return stats
+        return UsageStatsResult(timeStats, entranceCounts)
     }
     
     /**

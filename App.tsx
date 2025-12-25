@@ -3,8 +3,8 @@
  * @format
  */
 
-import React, { useState } from 'react';
-import { StatusBar, View, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StatusBar, View, ActivityIndicator, StyleSheet, Alert, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider, useAuth } from './src/contexts/AuthContext';
@@ -14,6 +14,7 @@ import { UsagePermissionScreen } from './src/screens/UsagePermissionScreen';
 import { Colors } from './src/constants/colors';
 import { useSocialMediaTracking } from './src/hooks/useSocialMediaTracking';
 import { useUsagePermission } from './src/hooks/useUsagePermission';
+import { socialMediaTrackingService } from './src/services/socialMediaTracking';
 
 function AppContent() {
   const { user, loading, hasUsername, usernameLoading } = useAuth();
@@ -23,6 +24,39 @@ function AppContent() {
   // Only start tracking if user has username and permission
   // Hook handles conditional logic internally
   useSocialMediaTracking();
+
+  // Handle deep links for automatic friend adding
+  useEffect(() => {
+    const handleDeepLink = async (url: string) => {
+      if (!user) return;
+
+      try {
+        // Check if it's a friend link: screentimebattle://add-friend/{userId}
+        if (url.includes('add-friend/')) {
+          await socialMediaTrackingService.addFriendByLink(user.uid, url);
+          Alert.alert('Success', 'Friend added successfully!');
+        }
+      } catch (error: any) {
+        Alert.alert('Error', error.message || 'Failed to add friend');
+      }
+    };
+
+    // Handle initial URL if app was opened via deep link
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleDeepLink(url);
+      }
+    });
+
+    // Handle URLs when app is already running
+    const subscription = Linking.addEventListener('url', (event) => {
+      handleDeepLink(event.url);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [user]);
 
   // Show loading screen while checking auth or permission
   if (loading || usernameLoading || (user && hasUsername && permissionChecking && !permissionGranted)) {

@@ -1,19 +1,46 @@
 import React from 'react';
+import { Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Dashboard } from '../screens/Dashboard';
 import { Leaderboard } from '../screens/Leaderboard';
-import { AddFriends } from '../screens/AddFriends';
+import { FriendsList } from '../screens/FriendsList';
+import { Wellbeing } from '../screens/Wellbeing';
 import { Colors } from '../constants/colors';
-import { HomeIcon, TrophyIcon, UserPlusIcon } from '../components/common/TabIcons';
+import { HomeIcon, TrophyIcon } from '../components/common/TabIcons';
+
+export type LeaderboardStackParamList = {
+  Leaderboard: undefined;
+  FriendsList: undefined;
+};
 
 export type MainTabParamList = {
   Dashboard: undefined;
-  Leaderboard: undefined;
-  AddFriends: undefined;
+  LeaderboardStack: undefined;
+  Wellbeing: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+const LeaderboardStack = createNativeStackNavigator<LeaderboardStackParamList>();
+
+const LeaderboardStackNavigator = () => {
+  return (
+    <LeaderboardStack.Navigator screenOptions={{ headerShown: false }}>
+      <LeaderboardStack.Screen name="Leaderboard" component={Leaderboard} />
+      <LeaderboardStack.Screen 
+        name="FriendsList" 
+        component={FriendsList}
+        options={{
+          headerShown: true,
+          title: 'Friends',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTintColor: Colors.text,
+        }}
+      />
+    </LeaderboardStack.Navigator>
+  );
+};
 
 export const MainNavigator: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -47,19 +74,21 @@ export const MainNavigator: React.FC = () => {
         }}
       />
       <Tab.Screen
-        name="Leaderboard"
-        component={Leaderboard}
+        name="LeaderboardStack"
+        component={LeaderboardStackNavigator}
         options={{
           tabBarLabel: 'Leaderboard',
           tabBarIcon: ({ color, size }) => <TrophyIcon color={color} size={size} />,
         }}
       />
       <Tab.Screen
-        name="AddFriends"
-        component={AddFriends}
+        name="Wellbeing"
+        component={Wellbeing}
         options={{
-          tabBarLabel: 'Add Friends',
-          tabBarIcon: ({ color, size }) => <UserPlusIcon color={color} size={size} />,
+          tabBarLabel: 'Wellbeing',
+          tabBarIcon: ({ color, size }) => (
+            <Text style={{ fontSize: size, color }}>🧘</Text>
+          ),
         }}
       />
     </Tab.Navigator>

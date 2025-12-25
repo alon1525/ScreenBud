@@ -70,13 +70,13 @@ export const CircularProgress: React.FC<CircularProgressProps> = ({
         </Svg>
         {/* Content */}
         <View style={styles.content}>
-          <Text style={styles.icon}>{appIcon}</Text>
+          {appIcon ? <Text style={styles.icon}>{appIcon}</Text> : null}
           <Text style={[styles.percentage, { color }]}>{displayPercentage}%</Text>
           <Text style={styles.time}>{formatMinutes(used)}</Text>
         </View>
       </View>
-      <Text style={styles.appName}>{appName}</Text>
-      <Text style={styles.goal}>Goal: {formatMinutes(goal)}</Text>
+      {appName ? <Text style={styles.appName}>{appName}</Text> : null}
+      {appName && goal ? <Text style={styles.goal}>Goal: {formatMinutes(goal)}</Text> : null}
     </View>
   );
 };

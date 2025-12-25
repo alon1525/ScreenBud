@@ -36,19 +36,27 @@ class UsageStatsModule(reactContext: ReactApplicationContext) :
                 return
             }
             
-            val stats = usageStatsTracker.getTodayUsageStats()
+            val statsResult = usageStatsTracker.getTodayUsageStatsWithEntrances()
             val result = Arguments.createMap()
             
             // Log what we're returning for debugging
             android.util.Log.d("UsageStatsModule", "=== Returning stats to React Native ===")
-            android.util.Log.d("UsageStatsModule", "Raw stats map from tracker: $stats")
-            android.util.Log.d("UsageStatsModule", "Stats map size: ${stats.size}")
+            android.util.Log.d("UsageStatsModule", "Time stats: ${statsResult.timeMinutes}")
+            android.util.Log.d("UsageStatsModule", "Entrance counts: ${statsResult.entranceCounts}")
             
-            stats.forEach { (app, minutes) ->
+            // Add time stats
+            statsResult.timeMinutes.forEach { (app, minutes) ->
                 val key = "${app}Minutes"
                 val value = minutes.toDouble()
                 android.util.Log.d("UsageStatsModule", "📤 $key = $value minutes (from $app)")
                 result.putDouble(key, value)
+            }
+            
+            // Add entrance counts
+            statsResult.entranceCounts.forEach { (app, count) ->
+                val key = "${app}Entrances"
+                android.util.Log.d("UsageStatsModule", "📤 $key = $count (from $app)")
+                result.putInt(key, count)
             }
             
             // Log all keys in result
@@ -58,12 +66,12 @@ class UsageStatsModule(reactContext: ReactApplicationContext) :
                 resultKeys.add(keyIterator.nextKey())
             }
             android.util.Log.d("UsageStatsModule", "Result map keys: $resultKeys")
-            android.util.Log.d("UsageStatsModule", "Total apps in result: ${stats.size}")
+            android.util.Log.d("UsageStatsModule", "Total apps in result: ${statsResult.timeMinutes.size + statsResult.entranceCounts.size}")
             
             // Log what React Native will receive
             android.util.Log.d("UsageStatsModule", "=== FINAL DATA BEING SENT TO REACT NATIVE ===")
-            stats.forEach { (app, minutes) ->
-                android.util.Log.d("UsageStatsModule", "🎯 $app: ${minutes}Minutes = $minutes minutes")
+            statsResult.timeMinutes.forEach { (app, minutes) ->
+                android.util.Log.d("UsageStatsModule", "🎯 $app: ${minutes}Minutes = $minutes minutes, ${statsResult.entranceCounts[app] ?: 0} entrances")
             }
             
             promise.resolve(result)

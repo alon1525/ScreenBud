@@ -50,6 +50,11 @@ export function useSocialMediaTracking() {
           youtubeMinutes: 0,
           facebookMinutes: 0,
           snapchatMinutes: 0,
+          tiktokEntrances: 0,
+          instagramEntrances: 0,
+          youtubeEntrances: 0,
+          facebookEntrances: 0,
+          snapchatEntrances: 0,
           updatedAt: new Date(),
         };
 
@@ -58,17 +63,21 @@ export function useSocialMediaTracking() {
         console.log('Raw stats values:', Object.values(stats));
 
         // Direct mapping - native module keys should match DailyStats field names
-        for (const [key, minutes] of Object.entries(stats)) {
+        for (const [key, value] of Object.entries(stats)) {
           // Check if the key is a valid field in dailyStats
-          if (key in dailyStats && typeof minutes === 'number') {
+          if (key in dailyStats && typeof value === 'number') {
             const fieldName = key as keyof typeof dailyStats;
             // Ensure we're setting a number field, not updatedAt
             if (fieldName !== 'updatedAt') {
-              dailyStats[fieldName] = Math.round(minutes);
-              console.log(`Mapped ${key}: ${minutes} -> ${Math.round(minutes)} minutes`);
+              dailyStats[fieldName] = Math.round(value);
+              if (key.endsWith('Minutes')) {
+                console.log(`Mapped ${key}: ${value} -> ${Math.round(value)} minutes`);
+              } else if (key.endsWith('Entrances')) {
+                console.log(`Mapped ${key}: ${value} -> ${Math.round(value)} entrances`);
+              }
             }
           } else {
-            console.warn(`Unknown or invalid key from native module: ${key} = ${minutes} (type: ${typeof minutes})`);
+            console.warn(`Unknown or invalid key from native module: ${key} = ${value} (type: ${typeof value})`);
           }
         }
 
